@@ -37,3 +37,7 @@ export class InvalidTransactionStateError extends DomainError {
 export class InvalidWagerTransactionError extends DomainError {
   readonly code = "INVALID_WAGER_TRANSACTION";
 }
+
+export class InvalidMessageStateError extends DomainError {
+  readonly code = "INVALID_MESSAGE_STATE";
+}
