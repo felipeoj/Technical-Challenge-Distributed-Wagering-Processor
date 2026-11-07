@@ -17,3 +17,27 @@ export class InvalidMoneyError extends DomainError {
 export class CurrencyMismatchError extends DomainError {
   readonly code = "CURRENCY_MISMATCH";
 }
+
+export class InsufficientFundsError extends DomainError {
+  readonly code = "INSUFFICIENT_FUNDS";
+}
+
+export class InvalidWalletOperationError extends DomainError {
+  readonly code = "INVALID_WALLET_OPERATION";
+}
+
+export class InvalidLedgerEntryError extends DomainError {
+  readonly code = "INVALID_LEDGER_ENTRY";
+}
+
+export class InvalidTransactionStateError extends DomainError {
+  readonly code = "INVALID_TRANSACTION_STATE";
+}
+
+export class InvalidWagerTransactionError extends DomainError {
+  readonly code = "INVALID_WAGER_TRANSACTION";
+}
+
+export class InvalidMessageStateError extends DomainError {
+  readonly code = "INVALID_MESSAGE_STATE";
+}
