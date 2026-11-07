@@ -41,3 +41,18 @@ export class InvalidWagerTransactionError extends DomainError {
 export class InvalidMessageStateError extends DomainError {
   readonly code = "INVALID_MESSAGE_STATE";
 }
+
+export class TransientInfrastructureError extends Error {
+  readonly code = "TRANSIENT_INFRASTRUCTURE";
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = new.target.name;
+  }
+}
+
+export class ConcurrentModificationError extends TransientInfrastructureError {}
+
+export class DuplicateWalletError extends DomainError {
+  readonly code = "WALLET_ALREADY_EXISTS";
+}
