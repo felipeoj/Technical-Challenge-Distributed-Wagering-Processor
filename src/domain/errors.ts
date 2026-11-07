@@ -56,3 +56,15 @@ export class ConcurrentModificationError extends TransientInfrastructureError {}
 export class DuplicateWalletError extends DomainError {
   readonly code = "WALLET_ALREADY_EXISTS";
 }
+
+export class InvalidCommandError extends DomainError {
+  readonly code = "INVALID_COMMAND";
+}
+
+export class IdempotencyConflictError extends DomainError {
+  readonly code = "IDEMPOTENCY_CONFLICT";
+}
+
+export class WalletNotFoundError extends DomainError {
+  readonly code = "WALLET_NOT_FOUND";
+}
