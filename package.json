@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "bun test src",
+    "test:integration": "bun test test/integration",
     "migration:up": "bun --env-file=.env scripts/migrate.ts up",
     "migration:down": "bun --env-file=.env scripts/migrate.ts down"
   },
