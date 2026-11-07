@@ -29,3 +29,11 @@ export class InvalidWalletOperationError extends DomainError {
 export class InvalidLedgerEntryError extends DomainError {
   readonly code = "INVALID_LEDGER_ENTRY";
 }
+
+export class InvalidTransactionStateError extends DomainError {
+  readonly code = "INVALID_TRANSACTION_STATE";
+}
+
+export class InvalidWagerTransactionError extends DomainError {
+  readonly code = "INVALID_WAGER_TRANSACTION";
+}
