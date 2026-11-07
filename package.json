@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test src"
+    "test": "bun test src",
+    "migration:up": "bun --env-file=.env scripts/migrate.ts up",
+    "migration:down": "bun --env-file=.env scripts/migrate.ts down"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1164.0",
