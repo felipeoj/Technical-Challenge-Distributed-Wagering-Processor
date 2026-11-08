@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { MikroORM } from "@mikro-orm/postgresql";
 import { connectIsolatedDatabase, run } from "../support/database";
-import { purgeAll, queues, receiveAll, sendWagerMessage, sqs } from "../support/queues";
+import { purgeAll, queueEnv, queues, receiveAll, sendWagerMessage, sqs } from "../support/queues";
 
 const INSTANCES = Math.max(3, Number(Bun.env.INSTANCES ?? 3));
 const WALLETS = Math.max(1, Number(Bun.env.WALLETS ?? 20));
@@ -24,7 +24,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 function startInstance(port: number) {
   const child = Bun.spawn(["bun", "src/main.ts"], {
     cwd: new URL("../..", import.meta.url).pathname,
-    env: { ...Bun.env, PORT: String(port), DATABASE_URL: databaseUrl, LOG_LEVEL: "error" },
+    env: { ...Bun.env, ...queueEnv, PORT: String(port), DATABASE_URL: databaseUrl, LOG_LEVEL: "error" },
     stdout: "ignore",
     stderr: "ignore",
   });

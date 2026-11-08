@@ -11,7 +11,7 @@ import { WagerQueueConsumer } from "../../src/infrastructure/sqs/wager-consumer"
 import { SystemClock } from "../../src/infrastructure/system-clock";
 import { connectIsolatedDatabase, run } from "../support/database";
 import { ledgerBalance, storedBalance } from "../support/ledger";
-import { purgeAll, queues, receiveAll, sendRaw, sendWagerMessage, sqs, wagerMessageBody } from "../support/queues";
+import { purgeAll, queueEnv, queues, receiveAll, sendRaw, sendWagerMessage, sqs, wagerMessageBody } from "../support/queues";
 
 let orm: MikroORM;
 let databaseUrl: string;
@@ -303,7 +303,7 @@ describe("shutdown and redelivery", () => {
 
     const script = new URL("../fixtures/crashing-consumer.ts", import.meta.url).pathname;
     const dying = Bun.spawn(["bun", script], {
-      env: { ...Bun.env, DATABASE_URL: databaseUrl },
+      env: { ...Bun.env, ...queueEnv, DATABASE_URL: databaseUrl },
       stdout: "ignore",
       stderr: "ignore",
     });

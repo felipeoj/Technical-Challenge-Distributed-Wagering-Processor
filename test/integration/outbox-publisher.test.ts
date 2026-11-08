@@ -10,7 +10,7 @@ import { PrometheusMetrics } from "../../src/infrastructure/observability/promet
 import { OutboxPublisher } from "../../src/infrastructure/sqs/outbox-publisher";
 import { createSqsClient } from "../../src/infrastructure/sqs/sqs-client";
 import { connectIsolatedDatabase, run } from "../support/database";
-import { env, purgeAll, queues, receiveAll, sqs } from "../support/queues";
+import { env, purgeAll, queueEnv, queues, receiveAll, sqs } from "../support/queues";
 import { TestClock } from "../support/test-clock";
 
 let orm: MikroORM;
@@ -93,7 +93,7 @@ async function freshState() {
 async function spawnFixture(point: "before_send" | "after_send"): Promise<number> {
   const script = new URL("../fixtures/crashing-publisher.ts", import.meta.url).pathname;
   const process = Bun.spawn(["bun", script, point], {
-    env: { ...Bun.env, DATABASE_URL: databaseUrl },
+    env: { ...Bun.env, ...queueEnv, DATABASE_URL: databaseUrl },
     stdout: "ignore",
     stderr: "ignore",
   });

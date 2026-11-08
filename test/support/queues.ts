@@ -12,10 +12,18 @@ import { createSqsClient } from "../../src/infrastructure/sqs/sqs-client";
 export const env = loadEnv();
 export const sqs = createSqsClient(env);
 
+const queueBase = env.SQS_TRANSACTIONS_QUEUE_URL.replace(/[^/]+$/, "");
+
 export const queues = {
-  transactions: env.SQS_TRANSACTIONS_QUEUE_URL,
-  dlq: env.SQS_TRANSACTIONS_DLQ_URL,
-  events: env.SQS_EVENTS_QUEUE_URL,
+  transactions: `${queueBase}wager-transactions-test.fifo`,
+  dlq: `${queueBase}wager-transactions-test-dlq.fifo`,
+  events: `${queueBase}wager-events-test.fifo`,
+};
+
+export const queueEnv = {
+  SQS_TRANSACTIONS_QUEUE_URL: queues.transactions,
+  SQS_TRANSACTIONS_DLQ_URL: queues.dlq,
+  SQS_EVENTS_QUEUE_URL: queues.events,
 };
 
 export async function purgeAll(): Promise<void> {
