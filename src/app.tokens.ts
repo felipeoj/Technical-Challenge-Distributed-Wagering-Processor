@@ -6,3 +6,4 @@ export const LOGGER = Symbol("LOGGER");
 export const PROMETHEUS = Symbol("PROMETHEUS");
 export const OBSERVABILITY = Symbol("OBSERVABILITY");
 export const NEST_LOGGER = Symbol("NEST_LOGGER");
+export const SQS = Symbol("SQS");
