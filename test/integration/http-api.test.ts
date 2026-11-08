@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import type { MikroORM } from "@mikro-orm/postgresql";
+import { FailWagerTransaction } from "../../src/application/fail-wager-transaction";
 import { createApp } from "../../src/create-app";
 import { TEST_DATABASE_URL, connectTestDatabase, run } from "../support/database";
 
@@ -86,7 +87,25 @@ describe("health and metrics", () => {
     expect(live.json.status).toBe("ok");
     const ready = await call("GET", "/health/ready");
     expect(ready.status).toBe(200);
-    expect(ready.json).toEqual({ status: "ready", checks: { postgres: "up" } });
+    expect(ready.json).toEqual({ status: "ready", checks: { postgres: "up", sqs: "up" } });
+  });
+
+  test("readiness is 503 when SQS cannot be reached", async () => {
+    const previous = process.env.AWS_ENDPOINT_URL;
+    process.env.AWS_ENDPOINT_URL = "http://127.0.0.1:1";
+    const broken = await createApp({ quiet: true });
+    await broken.listen(0, "127.0.0.1");
+    try {
+      const port = (broken.getHttpServer().address() as { port: number }).port;
+      const response = await fetch(`http://127.0.0.1:${port}/health/ready`);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ status: "unavailable", checks: { postgres: "up", sqs: "down" } });
+      const live = await fetch(`http://127.0.0.1:${port}/health/live`);
+      expect(live.status).toBe(200);
+    } finally {
+      await broken.close();
+      process.env.AWS_ENDPOINT_URL = previous;
+    }
   });
 
   test("an unknown route is a 404 in the common error shape", async () => {
@@ -236,6 +255,22 @@ describe("submitting transactions", () => {
     expect(echoed.headers.get("x-correlation-id")).toBe("corr-123");
     const generated = await submit(wager(wallet));
     expect(generated.headers.get("x-correlation-id")).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe("a transaction that failed permanently", () => {
+  test("replays as a 422 and can be read, and the wallet is untouched", async () => {
+    const wallet = await createWallet();
+    const body = wager(wallet);
+    await app.get(FailWagerTransaction).execute(body, { idempotencyKey: keyOf(body) });
+
+    const replay = await submit(body);
+    expect(replay.status).toBe(422);
+    expect(replay.json).toMatchObject({ status: "FAILED", failureCode: "PERMANENT_ERROR", idempotentReplay: true });
+    const read = await call("GET", `/providers/provider-a/wagering/transactions/${body.externalTransactionId}`);
+    expect(read.status).toBe(200);
+    expect(read.json).toMatchObject({ status: "FAILED", failureCode: "PERMANENT_ERROR" });
+    expect((await call("GET", `/wallets/${wallet.walletId}`)).json.balance).toEqual(money("1000.00"));
   });
 });
 

@@ -2,8 +2,8 @@ import { v7 as uuidv7 } from "uuid";
 import { IdempotencyConflictError, WalletNotFoundError } from "../domain/errors";
 import { InboxMessage } from "../domain/messaging/inbox-message";
 import { Money } from "../domain/money";
-import { WagerTransaction } from "../domain/wagering/wager-transaction";
 import { parseWagerCommand } from "./commands/wager-command";
+import { newWagerTransaction } from "./new-wager-transaction";
 import { payloadHash } from "./payload-hash";
 import { type Clock, type Observability, silentObservability } from "./ports";
 import type { Repositories } from "./repositories";
@@ -55,21 +55,7 @@ export class ProcessWagerTransaction {
 
       let outcome = await this.findReplay(repositories, options.idempotencyKey, hash);
       if (!outcome) {
-        const transaction = WagerTransaction.create({
-          id: uuidv7(),
-          providerId: command.providerId,
-          externalTransactionId: command.externalTransactionId,
-          idempotencyKey: options.idempotencyKey,
-          payloadHash: hash,
-          walletId: command.walletId,
-          playerId: command.playerId,
-          roundId: command.roundId,
-          gameId: command.gameId,
-          kind: command.kind,
-          money,
-          referenceExternalTransactionId: command.referenceExternalTransactionId,
-          createdAt: now,
-        });
+        const transaction = newWagerTransaction(command, money, options.idempotencyKey, hash, now);
         const inserted = await repositories.transactions.insertIfAbsent(transaction);
         if (!inserted) {
           outcome = await this.findReplay(repositories, options.idempotencyKey, hash);
