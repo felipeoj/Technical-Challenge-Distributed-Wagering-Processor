@@ -1,18 +1,20 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import type { MikroORM } from "@mikro-orm/postgresql";
 import { FailWagerTransaction } from "../../src/application/fail-wager-transaction";
 import { createApp } from "../../src/create-app";
-import { TEST_DATABASE_URL, connectTestDatabase, run } from "../support/database";
+import { connectIsolatedDatabase, run } from "../support/database";
+import { walletsOutOfBalance } from "../support/ledger";
 
 let app: INestApplication;
 let orm: MikroORM;
 let baseUrl: string;
 
 beforeAll(async () => {
-  orm = await connectTestDatabase();
-  process.env.DATABASE_URL = TEST_DATABASE_URL;
+  const database = await connectIsolatedDatabase("wagering_http_test");
+  orm = database.orm;
+  process.env.DATABASE_URL = database.url;
   process.env.LOG_LEVEL = "fatal";
   app = await createApp({ quiet: true });
   await app.listen(0, "127.0.0.1");
@@ -23,6 +25,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await app.close();
   await orm.close();
+});
+
+afterEach(async () => {
+  expect(await walletsOutOfBalance(orm)).toEqual([]);
 });
 
 interface Reply {
@@ -375,6 +381,7 @@ describe("reconciliation", () => {
     expect(row?.balance).toBe("1005.00");
     const metrics = await call("GET", "/metrics");
     expect(metrics.text).toMatch(/wallet_reconciliation_divergences_total [1-9]/);
+    await run(orm, "update wallet set balance = balance - 5 where id = ?", [wallet.walletId]);
   });
 
   test("an unknown wallet is a 404", async () => {

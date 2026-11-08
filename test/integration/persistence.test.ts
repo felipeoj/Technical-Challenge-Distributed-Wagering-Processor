@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { MikroORM } from "@mikro-orm/postgresql";
 import type { UnitOfWork } from "../../src/application/unit-of-work";
@@ -13,19 +13,23 @@ import { LedgerDirection } from "../../src/domain/wallet/ledger-direction";
 import { Wallet } from "../../src/domain/wallet/wallet";
 import { WalletLedgerEntry } from "../../src/domain/wallet/wallet-ledger-entry";
 import { MikroOrmUnitOfWork } from "../../src/infrastructure/persistence/mikro-unit-of-work";
-import { connectTestDatabase, run } from "../support/database";
-import { ledgerBalance, storedBalance } from "../support/ledger";
+import { connectIsolatedDatabase, run } from "../support/database";
+import { ledgerBalance, storedBalance, walletsOutOfBalance } from "../support/ledger";
 
 let orm: MikroORM;
 let uow: UnitOfWork;
 
 beforeAll(async () => {
-  orm = await connectTestDatabase();
+  ({ orm } = await connectIsolatedDatabase("wagering_persistence_test"));
   uow = new MikroOrmUnitOfWork(orm);
 });
 
 afterAll(async () => {
   await orm.close();
+});
+
+afterEach(async () => {
+  expect(await walletsOutOfBalance(orm)).toEqual([]);
 });
 
 const brl = (amount: string) => Money.from({ amount, currency: "BRL" });

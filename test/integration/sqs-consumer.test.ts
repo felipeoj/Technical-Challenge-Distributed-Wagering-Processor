@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { MikroORM } from "@mikro-orm/postgresql";
 import { FailWagerTransaction } from "../../src/application/fail-wager-transaction";
@@ -10,7 +10,7 @@ import { PrometheusMetrics } from "../../src/infrastructure/observability/promet
 import { WagerQueueConsumer } from "../../src/infrastructure/sqs/wager-consumer";
 import { SystemClock } from "../../src/infrastructure/system-clock";
 import { connectIsolatedDatabase, run } from "../support/database";
-import { ledgerBalance, storedBalance } from "../support/ledger";
+import { ledgerBalance, storedBalance, walletsOutOfBalance } from "../support/ledger";
 import { purgeAll, queueEnv, queues, receiveAll, sendRaw, sendWagerMessage, sqs, wagerMessageBody } from "../support/queues";
 
 let orm: MikroORM;
@@ -33,6 +33,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await orm.close();
+});
+
+afterEach(async () => {
+  expect(await walletsOutOfBalance(orm)).toEqual([]);
 });
 
 type Wallet = { walletId: string; playerId: string };

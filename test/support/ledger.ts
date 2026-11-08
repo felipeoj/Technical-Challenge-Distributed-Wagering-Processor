@@ -16,3 +16,15 @@ export async function storedBalance(orm: MikroORM, walletId: string): Promise<st
   ]);
   return row?.balance ?? "";
 }
+
+export async function walletsOutOfBalance(orm: MikroORM): Promise<string[]> {
+  const rows = await run<{ id: string }>(
+    orm,
+    `select w.id
+       from wallet w
+       left join wallet_ledger_entry e on e.wallet_id = w.id
+      group by w.id, w.balance
+     having w.balance <> coalesce(sum(case when e.direction = 'CREDIT' then e.amount else -e.amount end), 0)`,
+  );
+  return rows.map((row) => row.id);
+}

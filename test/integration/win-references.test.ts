@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { MikroORM } from "@mikro-orm/postgresql";
 import { OpenWallet } from "../../src/application/open-wallet";
@@ -8,8 +8,8 @@ import type { UnitOfWork } from "../../src/application/unit-of-work";
 import { FailureCode } from "../../src/domain/wagering/failure-code";
 import { WagerTransactionStatus } from "../../src/domain/wagering/wager-transaction-status";
 import { MikroOrmUnitOfWork } from "../../src/infrastructure/persistence/mikro-unit-of-work";
-import { connectTestDatabase, run } from "../support/database";
-import { ledgerBalance, storedBalance } from "../support/ledger";
+import { connectIsolatedDatabase, run } from "../support/database";
+import { ledgerBalance, storedBalance, walletsOutOfBalance } from "../support/ledger";
 import { TestClock } from "../support/test-clock";
 
 let orm: MikroORM;
@@ -20,7 +20,7 @@ let retry: RetryPendingReferences;
 const clock = new TestClock();
 
 beforeAll(async () => {
-  orm = await connectTestDatabase();
+  ({ orm } = await connectIsolatedDatabase("wagering_win_test"));
   uow = new MikroOrmUnitOfWork(orm);
   openWallet = new OpenWallet(uow, clock);
   processWager = new ProcessWagerTransaction(uow, clock);
@@ -29,6 +29,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await orm.close();
+});
+
+afterEach(async () => {
+  expect(await walletsOutOfBalance(orm)).toEqual([]);
 });
 
 type Wallet = { walletId: string; playerId: string };
