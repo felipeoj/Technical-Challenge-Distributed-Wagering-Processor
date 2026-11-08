@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "bun src/main.ts",
+    "dev": "bun --watch src/main.ts",
     "test": "bun test src",
     "test:integration": "bun test test/integration",
     "migration:up": "bun --env-file=.env scripts/migrate.ts up",
