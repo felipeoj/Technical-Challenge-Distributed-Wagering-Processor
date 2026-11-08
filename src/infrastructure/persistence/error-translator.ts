@@ -8,7 +8,7 @@ export function translateDatabaseError(error: unknown): unknown {
     return error;
   }
   const code = (error as { code?: string } | undefined)?.code;
-  if (code && (TRANSIENT_SQLSTATES.has(code) || code.startsWith("08") || TRANSIENT_NETWORK_CODES.has(code))) {
+  if (code && (TRANSIENT_SQLSTATES.has(code) || (code.startsWith("08") && code !== "08P01") || TRANSIENT_NETWORK_CODES.has(code))) {
     return new TransientInfrastructureError(`database temporarily unavailable (${code})`, { cause: error });
   }
   return error;
