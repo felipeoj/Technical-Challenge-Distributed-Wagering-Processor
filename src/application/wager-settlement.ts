@@ -7,6 +7,7 @@ import {
   type SettlementContext,
 } from "./settlement-steps";
 import { settleReversal } from "./wager-reversal";
+import { settleWin } from "./wager-win";
 
 export async function settle(context: SettlementContext): Promise<void> {
   const { wallet, transaction } = context;
@@ -20,7 +21,7 @@ export async function settle(context: SettlementContext): Promise<void> {
     case WagerTransactionKind.Bet:
       return applyMovement(context, "debit");
     case WagerTransactionKind.Win:
-      return applyMovement(context, "credit");
+      return settleWin(context);
     case WagerTransactionKind.Loss:
       return recordWithoutMovement(context);
     case WagerTransactionKind.Refund:

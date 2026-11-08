@@ -2,6 +2,7 @@ import { backoffDelayMs } from "../domain/messaging/backoff";
 import { WagerTransactionPendingReference } from "../domain/messaging/events/wager-transaction-pending-reference";
 import { OutboxMessage } from "../domain/messaging/outbox-message";
 import { FailureCode } from "../domain/wagering/failure-code";
+import type { WagerTransaction } from "../domain/wagering/wager-transaction";
 import { LedgerDirection } from "../domain/wallet/ledger-direction";
 import { WagerTransactionKind } from "../domain/wagering/wager-transaction-kind";
 import { WagerTransactionStatus } from "../domain/wagering/wager-transaction-status";
@@ -23,6 +24,15 @@ const ALLOWED_REFERENCE_KINDS: Partial<Record<WagerTransactionKind, WagerTransac
   ],
 };
 
+export function referenceMismatch(reference: WagerTransaction, transaction: WagerTransaction): boolean {
+  return (
+    reference.walletId !== transaction.walletId ||
+    reference.playerId !== transaction.playerId ||
+    reference.roundId !== transaction.roundId ||
+    reference.money.currency !== transaction.money.currency
+  );
+}
+
 export async function settleReversal(context: SettlementContext): Promise<void> {
   const { repositories, transaction } = context;
   const reference = await repositories.transactions.findByProviderAndExternalId(
@@ -38,12 +48,7 @@ export async function settleReversal(context: SettlementContext): Promise<void> 
   if (!ALLOWED_REFERENCE_KINDS[transaction.kind]?.includes(reference.kind)) {
     return reject(context, FailureCode.InvalidReferenceKind);
   }
-  if (
-    reference.walletId !== transaction.walletId ||
-    reference.playerId !== transaction.playerId ||
-    reference.roundId !== transaction.roundId ||
-    reference.money.currency !== transaction.money.currency
-  ) {
+  if (referenceMismatch(reference, transaction)) {
     return reject(context, FailureCode.ReferenceMismatch);
   }
   if (!reference.money.equals(transaction.money)) {
@@ -59,7 +64,7 @@ export async function settleReversal(context: SettlementContext): Promise<void> 
   });
 }
 
-async function waitForReference(context: SettlementContext): Promise<void> {
+export async function waitForReference(context: SettlementContext): Promise<void> {
   const { repositories, transaction, now } = context;
   if (transaction.referenceAttempts >= MAX_REFERENCE_ATTEMPTS) {
     return reject(context, FailureCode.ReferenceNotFound);
