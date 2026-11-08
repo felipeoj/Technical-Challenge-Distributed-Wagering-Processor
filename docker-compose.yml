@@ -1,3 +1,17 @@
+x-app: &app
+  image: wagering-processor
+  build: .
+  environment: &app-env
+    DATABASE_URL: postgres://wagering:wagering@postgres:5432/wagering
+    AWS_REGION: us-east-1
+    AWS_ENDPOINT_URL: http://localstack:4566
+    AWS_ACCESS_KEY_ID: test
+    AWS_SECRET_ACCESS_KEY: test
+    SQS_TRANSACTIONS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
+    SQS_TRANSACTIONS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
+    SQS_EVENTS_QUEUE_URL: http://localstack:4566/000000000000/wager-events.fifo
+    LOG_LEVEL: info
+
 services:
   postgres:
     image: postgres:16
@@ -32,3 +46,54 @@ services:
       interval: 3s
       timeout: 5s
       retries: 30
+
+  migrate:
+    <<: *app
+    command: ["bun", "scripts/migrate.ts", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health/ready').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+
+  tests:
+    <<: *app
+    profiles: ["test"]
+    environment:
+      <<: *app-env
+      TEST_DATABASE_URL: postgres://wagering:wagering@postgres:5432/wagering_test
+      SQS_TRANSACTIONS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions-test.fifo
+      SQS_TRANSACTIONS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-test-dlq.fifo
+      SQS_EVENTS_QUEUE_URL: http://localstack:4566/000000000000/wager-events-test.fifo
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["sh", "-c", "bun test src && bun run test:integration && bun run test:concurrency"]
