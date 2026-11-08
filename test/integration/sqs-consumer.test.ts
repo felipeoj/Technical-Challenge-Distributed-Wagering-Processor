@@ -279,6 +279,50 @@ describe("transient failures", () => {
   });
 });
 
+describe("unexpected errors", () => {
+  test("go to the DLQ without a FAILED record and can be redriven after the fix", async () => {
+    await purgeAll();
+    const wallet = await newWallet();
+    const data = betData(wallet);
+    const dlqBefore = await seriesValue("wager_dlq_messages_total");
+    await sendWagerMessage(data);
+
+    const broken = {
+      execute: async () => {
+        throw new TypeError("a bug in the processing code");
+      },
+    } as unknown as ProcessWagerTransaction;
+    const consumer = new WagerQueueConsumer(
+      sqs,
+      { queue: queues.transactions, dlq: queues.dlq },
+      broken,
+      new FailWagerTransaction(uow, clock, observability),
+      observability,
+      { waitSeconds: 1, visibilityBackoffSeconds: () => 0 },
+    );
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(await consumer.pollOnce()).toBe(1);
+    }
+    expect(await mainQueueIsEmpty()).toBe(true);
+
+    const dead = await receiveAll(queues.dlq);
+    expect(dead).toHaveLength(1);
+    expect(dead[0]?.MessageAttributes?.failureReason?.StringValue).toBe("TypeError");
+    expect((await seriesValue("wager_dlq_messages_total")) - dlqBefore).toBe(1);
+    const [rows] = await run<{ total: string }>(
+      orm,
+      "select count(*)::text as total from wager_transaction where idempotency_key = ?",
+      [data.idempotencyKey],
+    );
+    expect(rows?.total).toBe("0");
+    await expectConsistent(wallet.walletId, "1000.00");
+
+    await sendRaw(dead[0]?.Body ?? "", wallet.walletId);
+    expect(await pollUntilIdle(makeConsumer())).toBe(1);
+    await expectConsistent(wallet.walletId, "975.00");
+  });
+});
+
 describe("shutdown and redelivery", () => {
   test("on shutdown the unprocessed messages of a batch are returned and later processed once", async () => {
     await purgeAll();
