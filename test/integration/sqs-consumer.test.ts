@@ -6,7 +6,7 @@ import { OpenWallet } from "../../src/application/open-wallet";
 import { ProcessWagerTransaction } from "../../src/application/process-wager-transaction";
 import { WagerTransactionStatus } from "../../src/domain/wagering/wager-transaction-status";
 import { MikroOrmUnitOfWork } from "../../src/infrastructure/persistence/mikro-unit-of-work";
-import { PrometheusMetrics } from "../../src/infrastructure/observability/prometheus-metrics";
+import { OpenTelemetryMetrics } from "../../src/infrastructure/observability/otel-metrics";
 import { WagerQueueConsumer } from "../../src/infrastructure/sqs/wager-consumer";
 import { SystemClock } from "../../src/infrastructure/system-clock";
 import { connectIsolatedDatabase, run } from "../support/database";
@@ -18,7 +18,7 @@ let databaseUrl: string;
 let uow: MikroOrmUnitOfWork;
 let impatientUow: MikroOrmUnitOfWork;
 let openWallet: OpenWallet;
-const metrics = new PrometheusMetrics();
+const metrics = new OpenTelemetryMetrics();
 const noop = () => {};
 const observability = { logger: { info: noop, warn: noop, error: noop }, metrics };
 const clock = new SystemClock();
@@ -81,7 +81,7 @@ async function pollUntilIdle(consumer: WagerQueueConsumer, limit = 12): Promise<
 }
 
 async function seriesValue(prefix: string): Promise<number> {
-  const text = await metrics.registry.metrics();
+  const text = await metrics.scrape();
   const line = text.split("\n").find((entry) => entry.startsWith(`${prefix} `));
   return line ? Number(line.split(" ")[1]) : 0;
 }
