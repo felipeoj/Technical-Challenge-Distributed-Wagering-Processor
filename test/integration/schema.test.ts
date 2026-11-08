@@ -151,7 +151,7 @@ describe("wager_transaction constraints", () => {
     );
   });
 
-  test("a reference can be reversed once per kind among processed transactions", async () => {
+  test("a reference can have only one processed reversal, whatever its kind", async () => {
     const walletId = await insertWallet();
     const bet = await insertTransaction(walletId, { status: "PROCESSED", processed_at: new Date() });
     const reversal = (overrides: Record<string, unknown>) =>
@@ -167,7 +167,10 @@ describe("wager_transaction constraints", () => {
       /wager_transaction_reversed_once/,
     );
     await reversal({ status: "REJECTED", failure_code: "REFERENCE_ALREADY_REVERSED" });
-    await reversal({ kind: "ROLLBACK", status: "PROCESSED", processed_at: new Date() });
+    await expect(reversal({ kind: "ROLLBACK", status: "PROCESSED", processed_at: new Date() })).rejects.toThrow(
+      /wager_transaction_reversed_once/,
+    );
+    await reversal({ kind: "ROLLBACK", status: "REJECTED", failure_code: "REFERENCE_ALREADY_REVERSED" });
   });
 });
 

@@ -2,6 +2,7 @@ export enum FailureCode {
   InsufficientFunds = "INSUFFICIENT_FUNDS",
   ReversalWouldOverdraw = "REVERSAL_WOULD_OVERDRAW",
   ReferenceNotFound = "REFERENCE_NOT_FOUND",
+  ReferenceNotProcessed = "REFERENCE_NOT_PROCESSED",
   ReferenceMismatch = "REFERENCE_MISMATCH",
   InvalidReferenceKind = "INVALID_REFERENCE_KIND",
   ReferenceAlreadyReversed = "REFERENCE_ALREADY_REVERSED",
