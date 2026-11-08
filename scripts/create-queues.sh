@@ -18,6 +18,23 @@ awslocal sqs create-queue \
   --queue-name wager-transactions.fifo \
   --attributes "{\"FifoQueue\":\"true\",\"ContentBasedDeduplication\":\"false\",\"VisibilityTimeout\":\"30\",\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"${DLQ_ARN}\\\",\\\"maxReceiveCount\\\":\\\"5\\\"}\"}"
 
+# Queues used only by the test suites, so tests never touch the queues of a running application.
+awslocal sqs create-queue \
+  --queue-name wager-transactions-test-dlq.fifo \
+  --attributes FifoQueue=true,ContentBasedDeduplication=false
+
+TEST_DLQ_ARN=$(awslocal sqs get-queue-attributes \
+  --queue-url http://localhost:4566/000000000000/wager-transactions-test-dlq.fifo \
+  --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
+
+awslocal sqs create-queue \
+  --queue-name wager-transactions-test.fifo \
+  --attributes "{\"FifoQueue\":\"true\",\"ContentBasedDeduplication\":\"false\",\"VisibilityTimeout\":\"30\",\"RedrivePolicy\":\"{\\\"deadLetterTargetArn\\\":\\\"${TEST_DLQ_ARN}\\\",\\\"maxReceiveCount\\\":\\\"5\\\"}\"}"
+
+awslocal sqs create-queue \
+  --queue-name wager-events-test.fifo \
+  --attributes FifoQueue=true,ContentBasedDeduplication=false
+
 # Outbox events go to a separate queue, otherwise the consumer would read its own events.
 awslocal sqs create-queue \
   --queue-name wager-events.fifo \

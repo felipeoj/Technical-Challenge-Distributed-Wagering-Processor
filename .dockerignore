@@ -1,0 +1,8 @@
+node_modules
+.git
+.env
+.vscode
+*.log
+CLAUDE.md
+REVIEW-NOTES.md
+IMPROVEMENTS.md
