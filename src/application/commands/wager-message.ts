@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { InvalidCommandError } from "../../domain/errors";
+import { hasNullByte, safeText } from "./safe-text";
 
 const MAX_KEY_LENGTH = 200;
 
 const envelopeSchema = z.object({
-  messageId: z.string().min(1).max(200),
+  messageId: safeText(200),
   type: z.literal("WagerTransactionRequested"),
   occurredAt: z.string().min(1),
   data: z.record(z.string(), z.unknown()),
@@ -38,7 +39,7 @@ export function parseWagerMessage(body: string | undefined): WagerMessage {
       ? `${data.providerId}:${data.externalTransactionId}`
       : "";
   const idempotencyKey = explicit || fallback;
-  if (!idempotencyKey || idempotencyKey.length > MAX_KEY_LENGTH) {
+  if (!idempotencyKey || idempotencyKey.length > MAX_KEY_LENGTH || hasNullByte(idempotencyKey)) {
     throw new InvalidCommandError("invalid fields: idempotencyKey");
   }
   return { messageId, idempotencyKey, data };
