@@ -68,3 +68,7 @@ export class IdempotencyConflictError extends DomainError {
 export class WalletNotFoundError extends DomainError {
   readonly code = "WALLET_NOT_FOUND";
 }
+
+export class ResourceNotFoundError extends DomainError {
+  readonly code = "NOT_FOUND";
+}
