@@ -15,6 +15,7 @@ import {
   InvalidCommandError,
   InvalidMoneyError,
   InvalidWagerTransactionError,
+  TransientInfrastructureError,
   WalletNotFoundError,
 } from "../../domain/errors";
 
@@ -120,18 +121,13 @@ export class WagerQueueConsumer {
       return;
     }
     if (outcome === "permanent") {
-      try {
-        await this.sendToDeadLetterQueue(message, reason);
-        await this.acknowledge(message);
-        this.observability.metrics.dlqMessage();
-        this.observability.logger.error("message_sent_to_dlq", { sqsMessageId: message.MessageId, reason });
-        return;
-      } catch {
-        await this.retryLater(message, receiveCount, reason, parsed);
+      if (await this.deadLetter(message, reason)) {
         return;
       }
+      await this.retryLater(message, receiveCount, reason, parsed, true);
+      return;
     }
-    await this.retryLater(message, receiveCount, reason, parsed);
+    await this.retryLater(message, receiveCount, reason, parsed, error instanceof TransientInfrastructureError);
   }
 
   private async retryLater(
@@ -139,10 +135,16 @@ export class WagerQueueConsumer {
     receiveCount: number,
     reason: string,
     parsed: WagerMessage | undefined,
+    infrastructure: boolean,
   ): Promise<void> {
     this.observability.metrics.retry("sqs");
     if (receiveCount >= this.maxReceiveCount) {
-      await this.recordFailure(parsed);
+      if (!infrastructure && (await this.deadLetter(message, reason))) {
+        return;
+      }
+      if (infrastructure) {
+        await this.recordFailure(parsed);
+      }
       this.observability.metrics.dlqMessage();
       this.observability.logger.error("message_retries_exhausted", {
         sqsMessageId: message.MessageId,
@@ -157,6 +159,18 @@ export class WagerQueueConsumer {
       });
     }
     await this.changeVisibility(message, this.backoff(receiveCount));
+  }
+
+  private async deadLetter(message: Message, reason: string): Promise<boolean> {
+    try {
+      await this.sendToDeadLetterQueue(message, reason);
+      await this.acknowledge(message);
+    } catch {
+      return false;
+    }
+    this.observability.metrics.dlqMessage();
+    this.observability.logger.error("message_sent_to_dlq", { sqsMessageId: message.MessageId, reason });
+    return true;
   }
 
   private async recordFailure(parsed: WagerMessage | undefined): Promise<void> {
