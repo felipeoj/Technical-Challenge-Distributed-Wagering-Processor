@@ -1,14 +1,15 @@
 import { z } from "zod";
 import { InvalidCommandError } from "../../domain/errors";
+import { safeText } from "./safe-text";
 import { WagerTransactionKind } from "../../domain/wagering/wager-transaction-kind";
 
 const wagerCommandSchema = z.object({
-  providerId: z.string().min(1).max(100),
-  externalTransactionId: z.string().min(1).max(200),
-  playerId: z.string().min(1).max(100),
+  providerId: safeText(100),
+  externalTransactionId: safeText(200),
+  playerId: safeText(100),
   walletId: z.uuid(),
-  roundId: z.string().min(1).max(200),
-  gameId: z.string().min(1).max(200),
+  roundId: safeText(200),
+  gameId: safeText(200),
   kind: z.enum([
     WagerTransactionKind.Bet,
     WagerTransactionKind.Win,
@@ -17,7 +18,7 @@ const wagerCommandSchema = z.object({
     WagerTransactionKind.Rollback,
   ]),
   money: z.object({ amount: z.string(), currency: z.string() }),
-  referenceExternalTransactionId: z.string().min(1).max(200).optional(),
+  referenceExternalTransactionId: safeText(200).optional(),
 });
 
 export type WagerCommand = z.infer<typeof wagerCommandSchema>;

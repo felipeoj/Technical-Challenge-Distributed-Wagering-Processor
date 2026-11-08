@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { InvalidCommandError } from "../../domain/errors";
+import { safeText } from "./safe-text";
 
 const openWalletSchema = z.object({
-  playerId: z.string().min(1).max(100),
+  playerId: safeText(100),
   initialBalance: z.object({ amount: z.string(), currency: z.string() }),
 });
 

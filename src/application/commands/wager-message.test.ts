@@ -55,3 +55,10 @@ describe("parseWagerMessage", () => {
     expect(() => parseWagerMessage(undefined)).toThrow(InvalidCommandError);
   });
 });
+
+describe("parseWagerMessage null bytes", () => {
+  test("an idempotency key or message id with a null byte is invalid", () => {
+    expect(() => parseWagerMessage(message({ data: { ...data, idempotencyKey: "a\u0000b" } }))).toThrow(InvalidCommandError);
+    expect(() => parseWagerMessage(message({ messageId: "a\u0000b" }))).toThrow(InvalidCommandError);
+  });
+});
