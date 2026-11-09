@@ -103,7 +103,7 @@ The user is the `bun` user of the base image and not a custom one because it nee
 - Inside the container the process is uid 1000, its effective capability set is zero, writing to `/app` fails with "Read-only file system" and `/tmp` is writable.
 - The `tests` container has the same restrictions, so `docker compose --profile test run --rm tests` runs the whole suite (unit, integration and multi-instance) under them, and it passes. The multi-instance test starts real application processes inside that container, so they also run without root and without privileges.
 - `http-api.test.ts` checks that no response carries `X-Powered-By`, errors included, and that a body above 100 kB is refused with `413`.
-- With three replicas behind the gateway, the README commands gave the documented answers: a processed bet, its replay, the `409` conflict, the `422` for missing funds, the ledger and a consistent reconciliation. Two bets of 80.00 on a 100.00 wallet, answered by two different replicas, gave one `PROCESSED` and one `REJECTED` with a balance of 20.00. Stopping the replicas took about 2 seconds and ended with exit code 0.
+- With three replicas behind the gateway, the README commands gave the documented answers: a processed bet, its replay, the `409` conflict, the `422` for missing funds, the ledger and a consistent reconciliation. Two bets of 80.00 on a 100.00 wallet, answered by two different replicas, gave one `PROCESSED` and one `REJECTED` with a balance of 20.00. Stopping the replicas took at most 2 seconds and ended with exit code 0.
 
 ### What the HTTP layer does not reveal
 
