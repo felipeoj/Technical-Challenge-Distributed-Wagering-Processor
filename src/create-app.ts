@@ -9,6 +9,7 @@ export async function createApp(options: { quiet?: boolean } = {}): Promise<INes
   if (!options.quiet) {
     app.useLogger(app.get<NestLoggerAdapter>(NEST_LOGGER));
   }
+  app.getHttpAdapter().getInstance().disable("x-powered-by");
   app.enableShutdownHooks();
   return app;
 }
