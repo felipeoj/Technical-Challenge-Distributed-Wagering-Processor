@@ -1,9 +1,16 @@
 import { AggregationType, MeterProvider } from "@opentelemetry/sdk-metrics";
 import { PrometheusExporter, PrometheusSerializer } from "@opentelemetry/exporter-prometheus";
 import type { Metrics, RetryKind } from "../../application/ports";
+import { WagerTransactionStatus } from "../../domain/wagering/wager-transaction-status";
 
 const DURATION_NAME = "wager_processing_duration_seconds";
 const RETRY_KINDS: RetryKind[] = ["pending_reference", "sqs", "outbox"];
+const ANSWERED_STATUSES = [
+  WagerTransactionStatus.Processed,
+  WagerTransactionStatus.Rejected,
+  WagerTransactionStatus.PendingReference,
+  WagerTransactionStatus.Failed,
+];
 const DURATION_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5];
 
 export class OpenTelemetryMetrics implements Metrics {
@@ -51,6 +58,9 @@ export class OpenTelemetryMetrics implements Metrics {
   constructor() {
     for (const counter of [this.duplicates, this.dlq, this.lockConflicts, this.walletsNotFound, this.divergences]) {
       counter.add(0);
+    }
+    for (const status of ANSWERED_STATUSES) {
+      this.transactions.add(0, { status });
     }
     for (const kind of RETRY_KINDS) {
       this.retries.add(0, { kind });
