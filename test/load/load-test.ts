@@ -14,10 +14,11 @@ const DUPLICATE_KEYS = 50;
 const DUPLICATE_WALLETS = 10;
 const DUPLICATE_REQUESTS = Math.max(DUPLICATE_KEYS, Number(Bun.env.DUPLICATE_REQUESTS ?? 5_000));
 const INITIAL_BALANCE = "100000.00";
+const MAX_RESENDS = 3;
 
 type Body = Record<string, unknown>;
 type Wallet = { walletId: string; playerId: string };
-type Outcome = { status: number; replay: boolean; millis: number };
+type Outcome = { status: number; replay: boolean; millis: number; resends: number };
 type Row = {
   name: string;
   requests: number;
@@ -25,6 +26,7 @@ type Row = {
   replays: number;
   rejected: number;
   errors: number;
+  resent: number;
   seconds: number;
   p50: number;
   p95: number;
@@ -53,21 +55,23 @@ async function pool<T>(items: T[], size: number, task: (item: T, index: number) 
   );
 }
 
-async function send(path: string, body: unknown, key?: string, port?: number): Promise<Outcome> {
-  const target = port ?? (ports[Math.floor(Math.random() * ports.length)] as number);
+async function send(path: string, body: unknown, key: string): Promise<Outcome> {
   const started = performance.now();
-  try {
-    const response = await fetch(`http://127.0.0.1:${target}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", ...(key ? { "idempotency-key": key } : {}) },
-      body: JSON.stringify(body),
-    });
-    const reply = (await response.json().catch(() => ({}))) as { idempotentReplay?: boolean };
-    if (response.status >= 500) console.error(`request answered ${response.status}: ${JSON.stringify(reply)}`);
-    return { status: response.status, replay: reply.idempotentReplay === true, millis: performance.now() - started };
-  } catch (error) {
-    console.error(`request failed: ${(error as Error).name}: ${(error as Error).message}`);
-    return { status: 0, replay: false, millis: performance.now() - started };
+  for (let resends = 0; ; resends += 1) {
+    const target = ports[Math.floor(Math.random() * ports.length)] as number;
+    try {
+      const response = await fetch(`http://127.0.0.1:${target}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": key },
+        body: JSON.stringify(body),
+      });
+      const reply = (await response.json().catch(() => ({}))) as { idempotentReplay?: boolean };
+      if (response.status >= 500) console.error(`request answered ${response.status}: ${JSON.stringify(reply)}`);
+      return { status: response.status, replay: reply.idempotentReplay === true, millis: performance.now() - started, resends };
+    } catch (error) {
+      console.error(`request got no answer (attempt ${resends + 1} of ${MAX_RESENDS + 1}): ${(error as Error).message}`);
+      if (resends === MAX_RESENDS) return { status: 0, replay: false, millis: performance.now() - started, resends };
+    }
   }
 }
 
@@ -246,6 +250,7 @@ async function scenario(
     replays: outcomes.filter((outcome) => outcome.replay).length,
     rejected: outcomes.filter((outcome) => outcome.status === 422).length,
     errors: outcomes.filter((outcome) => outcome.status === 0 || outcome.status >= 500).length,
+    resent: outcomes.filter((outcome) => outcome.resends > 0).length,
     seconds,
     p50: percentile(latencies, 0.5),
     p95: percentile(latencies, 0.95),
@@ -282,17 +287,18 @@ function report(rows: Row[], postgres: string, dlq: number): string {
     "",
     "- A new database and dedicated test queues are created for each run, then the instances are started as real processes",
     "- Latency is measured by the client for each request, from sending it to reading the response body",
+    `- A request that gets no HTTP answer (a connection error) is sent again with the same Idempotency-Key, up to ${MAX_RESENDS} times, as a provider would; Resent counts those requests, and Errors counts 5xx answers and requests that never got an answer`,
     "- Lock conflicts are the growth of `wager_lock_conflicts_total` summed over the instances; max lag is the highest `outbox_lag_seconds` sampled every 500 ms, and a scenario only ends once every instance reports a lag of 0 again",
     "- Outbox drain is the time after the last response until no outbox row is left unpublished",
     "- After each scenario: stored balance equals the balance rebuilt from the ledger for every wallet, no negative balance, no duplicated ledger entry, every transaction processed",
     "",
     "## Results",
     "",
-    "| Scenario | Requests | New | Replays | 422 | Errors | Seconds | Req/s | p50 ms | p95 ms | p99 ms | Lock conflicts | Max outbox lag s | Outbox drain s | Consistent |",
-    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    "| Scenario | Requests | New | Replays | 422 | Errors | Resent | Seconds | Req/s | p50 ms | p95 ms | p99 ms | Lock conflicts | Max outbox lag s | Outbox drain s | Consistent |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ...rows.map(
       (row) =>
-        `| ${row.name} | ${row.requests} | ${row.created} | ${row.replays} | ${row.rejected} | ${row.errors} | ${fixed(row.seconds)} | ${fixed(row.requests / row.seconds, 0)} | ${fixed(row.p50)} | ${fixed(row.p95)} | ${fixed(row.p99)} | ${row.lockConflicts} | ${fixed(row.maxLag)} | ${fixed(row.drainSeconds)} | ${row.consistent ? "yes" : "NO"} |`,
+        `| ${row.name} | ${row.requests} | ${row.created} | ${row.replays} | ${row.rejected} | ${row.errors} | ${row.resent} | ${fixed(row.seconds)} | ${fixed(row.requests / row.seconds, 0)} | ${fixed(row.p50)} | ${fixed(row.p95)} | ${fixed(row.p99)} | ${row.lockConflicts} | ${fixed(row.maxLag)} | ${fixed(row.drainSeconds)} | ${row.consistent ? "yes" : "NO"} |`,
     ),
     "",
     `Messages in the dead-letter queue after the run: ${dlq}`,
