@@ -54,6 +54,13 @@ services:
       timeout: 5s
       retries: 30
 
+  jaeger:
+    # Receives the traces of the app (OTLP over HTTP) and shows them at http://localhost:16686.
+    # In-memory storage: traces are lost when it stops. The app does not depend on it.
+    image: jaegertracing/jaeger:2.22.0
+    ports:
+      - "16686:16686"
+
   migrate:
     <<: *app
     command: ["bun", "scripts/migrate.ts", "up"]
@@ -63,6 +70,9 @@ services:
 
   app:
     <<: *app
+    environment:
+      <<: *app-env
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     stop_grace_period: 30s
     depends_on:
       postgres:
