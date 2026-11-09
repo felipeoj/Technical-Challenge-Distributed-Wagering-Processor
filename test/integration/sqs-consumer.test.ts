@@ -4,6 +4,7 @@ import type { MikroORM } from "@mikro-orm/postgresql";
 import { FailWagerTransaction } from "../../src/application/fail-wager-transaction";
 import { OpenWallet } from "../../src/application/open-wallet";
 import { ProcessWagerTransaction } from "../../src/application/process-wager-transaction";
+import type { UnitOfWork } from "../../src/application/unit-of-work";
 import { WagerTransactionStatus } from "../../src/domain/wagering/wager-transaction-status";
 import { MikroOrmUnitOfWork } from "../../src/infrastructure/persistence/mikro-unit-of-work";
 import { OpenTelemetryMetrics } from "../../src/infrastructure/observability/otel-metrics";
@@ -62,12 +63,12 @@ function betData(wallet: Wallet, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeConsumer(unit: MikroOrmUnitOfWork = uow) {
+function makeConsumer(unit: MikroOrmUnitOfWork = uow, failWager = new FailWagerTransaction(uow, clock, observability)) {
   return new WagerQueueConsumer(
     sqs,
     { queue: queues.transactions, dlq: queues.dlq },
     new ProcessWagerTransaction(unit, clock, observability),
-    new FailWagerTransaction(uow, clock, observability),
+    failWager,
     observability,
     { waitSeconds: 1, visibilityBackoffSeconds: () => 0 },
   );
@@ -228,16 +229,16 @@ describe("transient failures", () => {
     const release = await holdWalletLock(wallet.walletId);
     await sendWagerMessage(data);
 
-    const consumer = makeConsumer(impatientUow);
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    const releaseFirst: UnitOfWork = {
+      run: async (work) => {
+        await release();
+        return uow.run(work);
+      },
+    };
+    const consumer = makeConsumer(impatientUow, new FailWagerTransaction(releaseFirst, clock, observability));
+    for (let attempt = 0; attempt < 5; attempt += 1) {
       expect(await consumer.pollOnce()).toBe(1);
     }
-    const lastAttempt = consumer.pollOnce();
-    const released = new Promise<void>((resolve) => {
-      setTimeout(() => void release().then(resolve), 700);
-    });
-    expect(await lastAttempt).toBe(1);
-    await released;
     expect(await consumer.pollOnce()).toBe(0);
 
     const [row] = await run<{ status: string; failure_code: string }>(
