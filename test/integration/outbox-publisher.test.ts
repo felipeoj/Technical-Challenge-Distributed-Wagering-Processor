@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { CreateQueueCommand, DeleteQueueCommand } from "@aws-sdk/client-sqs";
 import type { MikroORM } from "@mikro-orm/postgresql";
 import { OpenWallet } from "../../src/application/open-wallet";
 import { ProcessWagerTransaction } from "../../src/application/process-wager-transaction";
@@ -23,17 +24,17 @@ let publisher: OutboxPublisher;
 const clock = new TestClock();
 const metrics = new OpenTelemetryMetrics();
 
-class TestEvent extends IntegrationEvent<{ n: number }> {
+class TestEvent extends IntegrationEvent<{ n: number; padding: string }> {
   readonly eventType = "TestEvent";
   readonly version = 1;
 
-  static make(aggregateId: string): TestEvent {
+  static make(aggregateId: string, padding = ""): TestEvent {
     return new TestEvent({
       eventId: randomUUID(),
       aggregateId,
       correlationId: randomUUID(),
       occurredAt: new Date(),
-      data: { n: 1 },
+      data: { n: 1, padding },
     });
   }
 }
@@ -108,9 +109,10 @@ async function spawnFixture(point: "before_send" | "after_send"): Promise<number
 const eventIds = async () => (await receiveAll(queues.events)).map((message) => JSON.parse(message.Body ?? "{}").eventId as string);
 
 describe("publishing", () => {
-  test("publishes committed events to the events queue and marks them published", async () => {
+  test("publishes committed events to the events queue in batches of ten and marks them published", async () => {
     await freshState();
-    const created = await seed(3);
+    const created = await seed(6);
+    expect(created).toBeGreaterThan(10);
     expect(await pendingCount()).toBe(created);
 
     expect(await publisher.publishBatch(100)).toBe(created);
@@ -210,6 +212,36 @@ describe("failures", () => {
     expect(await publisher.publishBatch(100)).toBe(created);
     expect(await pendingCount()).toBe(0);
     expect(await receiveAll(queues.events)).toHaveLength(created);
+  });
+
+  test("an entry that SQS refuses is retried later and the rest of its batch is published", async () => {
+    await freshState();
+    const name = `wager-events-limited-${randomUUID().slice(0, 8)}-test.fifo`;
+    await sqs.send(
+      new CreateQueueCommand({
+        QueueName: name,
+        Attributes: { FifoQueue: "true", ContentBasedDeduplication: "false", MaximumMessageSize: "1024" },
+      }),
+    );
+    const limitedQueue = queues.events.replace(/[^/]+$/, name);
+    try {
+      const accepted = Array.from({ length: 3 }, () => OutboxMessage.enqueue(TestEvent.make(randomUUID())));
+      const oversized = OutboxMessage.enqueue(TestEvent.make(randomUUID(), "x".repeat(2_000)));
+      await uow.run(async (repositories) => {
+        for (const message of [...accepted, oversized]) await repositories.outbox.add(message);
+      });
+
+      expect(await new OutboxPublisher(uow, sqs, limitedQueue, clock).publishBatch(100)).toBe(3);
+      const pending = await run<{ id: string; attempts: number }>(
+        orm,
+        "select id, attempts from outbox_message where published_at is null",
+      );
+      expect(pending).toEqual([{ id: oversized.id, attempts: 1 }]);
+      const received = (await receiveAll(limitedQueue)).map((message) => JSON.parse(message.Body ?? "{}").eventId as string);
+      expect(received.sort()).toEqual(accepted.map((message) => message.id).sort());
+    } finally {
+      await sqs.send(new DeleteQueueCommand({ QueueUrl: limitedQueue }));
+    }
   });
 
   test("the outbox lag metric grows while events wait and drops after publishing", async () => {
