@@ -316,6 +316,14 @@ describe("reading transactions", () => {
     expect((await call("GET", "/wagering/transactions/abc")).status).toBe(400);
     expect((await call("GET", "/providers/provider-a/wagering/transactions/nope")).status).toBe(404);
   });
+
+  test("a null byte in a provider lookup id is a 400, not a database error", async () => {
+    for (const path of ["/providers/provider-a/wagering/transactions/a%00b", "/providers/a%00b/wagering/transactions/nope"]) {
+      const reply = await call("GET", path);
+      expect(reply.status).toBe(400);
+      expect(reply.json.error.code).toBe("INVALID_COMMAND");
+    }
+  });
 });
 
 describe("ledger pagination", () => {
