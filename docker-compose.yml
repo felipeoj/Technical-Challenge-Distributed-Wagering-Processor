@@ -1,6 +1,13 @@
 x-app: &app
   image: wagering-processor
   build: .
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp
   environment: &app-env
     DATABASE_URL: postgres://wagering:wagering@postgres:5432/wagering
     AWS_REGION: us-east-1
@@ -56,6 +63,7 @@ services:
 
   app:
     <<: *app
+    stop_grace_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
