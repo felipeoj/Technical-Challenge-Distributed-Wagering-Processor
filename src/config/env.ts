@@ -13,6 +13,7 @@ const envSchema = z.object({
   SQS_TRANSACTIONS_QUEUE_URL: z.string().url(),
   SQS_TRANSACTIONS_DLQ_URL: z.string().url(),
   SQS_EVENTS_QUEUE_URL: z.string().url(),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
