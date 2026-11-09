@@ -125,6 +125,17 @@ describe("health and metrics", () => {
     expect(reply.status).toBe(400);
     expect(reply.json.error).toBeDefined();
   });
+
+  test("a body above 100 kB is a 413 in the common error shape", async () => {
+    const reply = await call("POST", "/wallets", { rawBody: JSON.stringify({ padding: "x".repeat(100 * 1024) }) });
+    expect(reply.status).toBe(413);
+    expect(reply.json.error.code).toBe("HTTP_413");
+  });
+
+  test("responses do not carry an X-Powered-By header", async () => {
+    expect((await call("GET", "/health/live")).headers.get("x-powered-by")).toBeNull();
+    expect((await call("GET", "/nope")).headers.get("x-powered-by")).toBeNull();
+  });
 });
 
 describe("wallets", () => {
