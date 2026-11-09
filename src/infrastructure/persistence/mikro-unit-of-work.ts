@@ -1,4 +1,5 @@
 import type { MikroORM, SqlEntityManager } from "@mikro-orm/postgresql";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { type Metrics, silentObservability } from "../../application/ports";
 import type { Repositories } from "../../application/repositories";
 import type { UnitOfWork } from "../../application/unit-of-work";
@@ -11,6 +12,7 @@ import { MikroWagerTransactionRepository } from "./repositories/mikro-wager-tran
 import { MikroWalletRepository } from "./repositories/mikro-wallet.repository";
 
 const LOCK_CONFLICT_SQLSTATES = new Set(["55P03", "40P01", "40001"]);
+const tracer = trace.getTracer("persistence");
 
 function createRepositories(em: SqlEntityManager): Repositories {
   return {
@@ -30,6 +32,22 @@ export class MikroOrmUnitOfWork implements UnitOfWork {
   ) {}
 
   async run<T>(work: (repositories: Repositories) => Promise<T>): Promise<T> {
+    if (!trace.getActiveSpan()) {
+      return this.execute(work);
+    }
+    return tracer.startActiveSpan("db.transaction", async (span) => {
+      try {
+        return await this.execute(work);
+      } catch (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.name : "unknown" });
+        throw error;
+      } finally {
+        span.end();
+      }
+    });
+  }
+
+  private async execute<T>(work: (repositories: Repositories) => Promise<T>): Promise<T> {
     try {
       return await this.orm.em.fork().transactional(async (em) => {
         await em.execute(`set local lock_timeout = '${Math.trunc(this.options.lockTimeoutMs ?? 5000)}ms'`);

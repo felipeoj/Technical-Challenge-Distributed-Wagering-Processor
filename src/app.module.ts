@@ -1,5 +1,5 @@
 import { Inject, Module, type OnApplicationShutdown } from "@nestjs/common";
-import { APP_FILTER, APP_GUARD } from "@nestjs/core";
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { MikroORM } from "@mikro-orm/postgresql";
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import {
@@ -26,6 +26,7 @@ import type { UnitOfWork } from "./application/unit-of-work";
 import { type Env, loadEnv } from "./config/env";
 import { NoopAuthGuard } from "./http/auth/auth.guard";
 import { HttpErrorFilter } from "./http/http-error.filter";
+import { TracingInterceptor } from "./http/tracing.interceptor";
 import { WageringController } from "./http/wagering.controller";
 import { WalletsController } from "./http/wallets.controller";
 import { HealthController } from "./infrastructure/health/health.controller";
@@ -33,6 +34,7 @@ import { MetricsController } from "./infrastructure/observability/metrics.contro
 import { NestLoggerAdapter } from "./infrastructure/observability/nest-logger";
 import { PinoLogger } from "./infrastructure/observability/pino-logger";
 import { OpenTelemetryMetrics } from "./infrastructure/observability/otel-metrics";
+import { stopTracing } from "./infrastructure/observability/tracing";
 import { buildOrmConfig } from "./infrastructure/persistence/mikro-orm.config";
 import { MikroOrmUnitOfWork } from "./infrastructure/persistence/mikro-unit-of-work";
 import { createSqsClient } from "./infrastructure/sqs/sqs-client";
@@ -52,6 +54,12 @@ class SqsShutdown implements OnApplicationShutdown {
 
   onApplicationShutdown(): void {
     this.sqs.destroy();
+  }
+}
+
+class TracingShutdown implements OnApplicationShutdown {
+  onApplicationShutdown(): Promise<void> {
+    return stopTracing();
   }
 }
 
@@ -108,9 +116,11 @@ class SqsShutdown implements OnApplicationShutdown {
     },
     { provide: APP_FILTER, useClass: HttpErrorFilter },
     { provide: APP_GUARD, useClass: NoopAuthGuard },
+    { provide: APP_INTERCEPTOR, useClass: TracingInterceptor },
     { provide: WorkerRegistry, useFactory: (logger: PinoLogger) => new WorkerRegistry(logger), inject: [LOGGER] },
     DatabaseShutdown,
     SqsShutdown,
+    TracingShutdown,
   ],
 })
 export class AppModule {}

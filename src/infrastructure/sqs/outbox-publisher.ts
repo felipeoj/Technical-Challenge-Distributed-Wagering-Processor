@@ -1,9 +1,12 @@
 import { SQSClient, SendMessageBatchCommand } from "@aws-sdk/client-sqs";
+import { trace } from "@opentelemetry/api";
 import { type Clock, type Observability, silentObservability } from "../../application/ports";
+import type { Repositories } from "../../application/repositories";
 import type { OutboxMessage } from "../../domain/messaging/outbox-message";
 import type { UnitOfWork } from "../../application/unit-of-work";
 
 const SQS_BATCH_LIMIT = 10;
+const tracer = trace.getTracer("sqs");
 
 export class OutboxPublisher {
   constructor(
@@ -17,34 +20,50 @@ export class OutboxPublisher {
   async publishBatch(limit = 20): Promise<number> {
     const published = await this.uow.run(async (repositories) => {
       const messages = await repositories.outbox.claimDue(this.clock.now(), limit);
-      let count = 0;
-      for (let start = 0; start < messages.length; start += SQS_BATCH_LIMIT) {
-        const chunk = messages.slice(start, start + SQS_BATCH_LIMIT);
-        const failed = await this.send(chunk);
-        for (const message of chunk) {
-          if (failed.has(message.id)) {
-            message.scheduleRetry(this.clock.now());
-            this.observability.metrics.retry("outbox");
-            this.observability.logger.warn("outbox_publish_failed", {
-              eventId: message.id,
-              aggregateId: message.aggregateId,
-              attempts: message.attempts,
-              reason: failed.get(message.id),
-            });
-          } else {
-            message.markPublished(this.clock.now());
-            count += 1;
-          }
-          await repositories.outbox.save(message);
-        }
+      if (messages.length === 0) {
+        return 0;
       }
-      return count;
+      return tracer.startActiveSpan("outbox.publish", async (span) => {
+        span.setAttribute("outbox.claimed", messages.length);
+        try {
+          const count = await this.publish(repositories, messages);
+          span.setAttribute("outbox.published", count);
+          return count;
+        } finally {
+          span.end();
+        }
+      });
     });
 
     const oldest = await this.uow.run((repositories) => repositories.outbox.oldestPendingAt());
     const lagSeconds = oldest ? Math.max(0, (this.clock.now().getTime() - oldest.getTime()) / 1000) : 0;
     this.observability.metrics.outboxLag(lagSeconds);
     return published;
+  }
+
+  private async publish(repositories: Repositories, messages: OutboxMessage[]): Promise<number> {
+    let count = 0;
+    for (let start = 0; start < messages.length; start += SQS_BATCH_LIMIT) {
+      const chunk = messages.slice(start, start + SQS_BATCH_LIMIT);
+      const failed = await this.send(chunk);
+      for (const message of chunk) {
+        if (failed.has(message.id)) {
+          message.scheduleRetry(this.clock.now());
+          this.observability.metrics.retry("outbox");
+          this.observability.logger.warn("outbox_publish_failed", {
+            eventId: message.id,
+            aggregateId: message.aggregateId,
+            attempts: message.attempts,
+            reason: failed.get(message.id),
+          });
+        } else {
+          message.markPublished(this.clock.now());
+          count += 1;
+        }
+        await repositories.outbox.save(message);
+      }
+    }
+    return count;
   }
 
   private async send(chunk: OutboxMessage[]): Promise<Map<string, string>> {

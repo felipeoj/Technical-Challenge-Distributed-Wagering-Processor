@@ -6,6 +6,7 @@ import {
   SQSClient,
   SendMessageCommand,
 } from "@aws-sdk/client-sqs";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { parseWagerMessage, type WagerMessage } from "../../application/commands/wager-message";
 import type { FailWagerTransaction } from "../../application/fail-wager-transaction";
 import { type Observability, silentObservability } from "../../application/ports";
@@ -27,6 +28,8 @@ export interface ConsumerOptions {
 }
 
 type Outcome = "business" | "permanent" | "transient";
+
+const tracer = trace.getTracer("sqs");
 
 function classify(error: unknown): Outcome {
   if (error instanceof WalletNotFoundError || error instanceof IdempotencyConflictError) {
@@ -85,8 +88,23 @@ export class WagerQueueConsumer {
     return handled;
   }
 
-  private async handle(message: Message): Promise<void> {
+  private handle(message: Message): Promise<void> {
+    return tracer.startActiveSpan(
+      "sqs.consume",
+      { attributes: { "messaging.message.id": message.MessageId ?? "" } },
+      async (span) => {
+        try {
+          await this.process(message);
+        } finally {
+          span.end();
+        }
+      },
+    );
+  }
+
+  private async process(message: Message): Promise<void> {
     const receiveCount = Number(message.Attributes?.ApproximateReceiveCount ?? 1);
+    trace.getActiveSpan()?.setAttribute("wager.receive_count", receiveCount);
     let parsed: WagerMessage | undefined;
     try {
       parsed = parseWagerMessage(message.Body);
@@ -94,6 +112,7 @@ export class WagerQueueConsumer {
         idempotencyKey: parsed.idempotencyKey,
         inbox: { messageId: parsed.messageId, consumerName: this.consumerName },
       });
+      trace.getActiveSpan()?.setAttributes({ "wager.status": result.status, "wager.replay": result.idempotentReplay });
       this.observability.logger.info("message_processed", {
         messageId: parsed.messageId,
         transactionId: result.transactionId,
@@ -115,6 +134,11 @@ export class WagerQueueConsumer {
   ): Promise<void> {
     const outcome = classify(error);
     const reason = error instanceof Error ? error.name : "unknown";
+    const span = trace.getActiveSpan();
+    span?.setAttribute("wager.outcome", outcome);
+    if (outcome !== "business") {
+      span?.setStatus({ code: SpanStatusCode.ERROR, message: reason });
+    }
     if (outcome === "business") {
       this.observability.logger.warn("message_dropped_business", { sqsMessageId: message.MessageId, reason });
       await this.acknowledge(message);

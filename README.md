@@ -23,7 +23,7 @@ You only need Docker with Compose v2.
 docker compose up --build -d --wait
 ```
 
-This starts PostgreSQL, LocalStack (with the queues), the migrations, the API and a small gateway. The API answers at `http://localhost:3000`.
+This starts PostgreSQL, LocalStack (with the queues), the migrations, the API, a small gateway and Jaeger. The API answers at `http://localhost:3000` and the traces are at `http://localhost:16686`.
 
 To run several instances behind the same URL:
 
@@ -93,6 +93,10 @@ curl http://localhost:3000/metrics
 ```
 
 With several instances, the `X-Upstream` response header shows which one answered.
+
+### Traces
+
+Send a bet and open Jaeger at `http://localhost:16686`. Pick the service `wagering-processor` and click Find Traces. A bet shows a span for the HTTP request with the database transaction inside it. A message from the queue shows `sqs.consume`, and each batch of events sent to the events queue shows `outbox.publish`. Health checks and `/metrics` are not traced. Traces are kept in memory, so they are lost when Jaeger stops, and the API works the same without it. More in [ARCHITECTURE.md](ARCHITECTURE.md#observability).
 
 ### Endpoints
 
@@ -181,13 +185,14 @@ Environment variables (see `.env.example`):
 | `AWS_REGION`, `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | SQS client settings (LocalStack here) |
 | `SQS_TRANSACTIONS_QUEUE_URL`, `SQS_TRANSACTIONS_DLQ_URL` | input queue and its dead-letter queue |
 | `SQS_EVENTS_QUEUE_URL` | queue where the outbox publishes integration events |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | optional, where to send traces (OTLP over HTTP, for example `http://localhost:4318`). Without it nothing is traced. Docker Compose sets it for `app` |
 
 ## Project layout
 
 ```
 src/domain          Money, wallet, ledger entry, wager transaction, inbox, outbox and events
 src/application     use cases, commands, ports and queries
-src/infrastructure  PostgreSQL persistence, SQS publisher and consumer, workers, health, logs and metrics
+src/infrastructure  PostgreSQL persistence, SQS publisher and consumer, workers, health, logs, metrics and traces
 src/http            controllers, error mapping and the authentication extension point
 migrations          hand-written SQL migrations, each one reversible
 test                integration, concurrency and crash tests

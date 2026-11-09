@@ -12,7 +12,7 @@ The code has four layers:
 
 - `domain`: `Money`, `Wallet`, `WalletLedgerEntry`, `WagerTransaction`, `InboxMessage`, `OutboxMessage` and the integration events. Plain TypeScript. The only external dependency is `decimal.js`, through `Money`.
 - `application`: the use cases (open a wallet, process a transaction, retry pending references, record a permanent failure, the read queries) and the ports they need (repositories, unit of work, clock, logger, metrics).
-- `infrastructure`: PostgreSQL persistence with MikroORM, the SQS publisher and consumer, the background workers, health checks, logs and metrics.
+- `infrastructure`: PostgreSQL persistence with MikroORM, the SQS publisher and consumer, the background workers, health checks, logs, metrics and traces.
 - `http`: controllers, the error mapper and the authentication extension point.
 
 The application layer has no port for publishing messages. Only the outbox publisher in `infrastructure/sqs` talks to SQS, so a use case cannot publish an event before its transaction commits, even by mistake.
@@ -115,6 +115,7 @@ The user is the `bun` user of the base image and not a custom one because it nee
 ### What is not covered
 
 - The `gateway` (nginx) container has none of these restrictions. Apart from `server_tokens off`, which keeps its version out of the `Server` header, its configuration is a plain reverse proxy: no TLS, no rate limiting, and only the default nginx body size limit. It also adds an `X-Upstream` header with the internal address of the instance that answered, which is useful to see the load balancing and should be removed in a real deployment.
+- Jaeger runs with its default configuration: no authentication on its UI, traces kept in memory, and none of the restrictions above.
 - PostgreSQL and LocalStack run as the development images they are, with the development credentials written in `docker-compose.yml`. A real deployment would take the credentials from a secret store.
 - The application connects to PostgreSQL with a role that owns the schema. A runtime role with only `SELECT` and `INSERT` on the ledger would add a barrier next to the triggers.
 - Authentication is a no-op extension point (see Authentication). There is no per-provider authorization.
@@ -274,6 +275,15 @@ Logs are JSON, one event per line, with `correlationId`, `transactionId`, `walle
 
 Metrics are recorded with the OpenTelemetry SDK and served by each instance at `/metrics`, in the Prometheus text format: transactions by status, duplicates detected, retries by kind, messages sent to the dead-letter queue, lock conflicts, outbox lag, processing latency, unknown wallets and reconciliation divergences. Every counter (the transactions of each answered status and the retries of each kind included) and the outbox lag start at zero, so they are visible before their first event. The latency histogram appears with the first transaction, because OpenTelemetry exports a histogram only once it has a measurement. The statement does not ask for a format, and this one needs no extra infrastructure. The first version used `prom-client`, which is now deprecated in favour of another client. The OpenTelemetry SDK replaced it with the same names, labels and histogram buckets, and sending the metrics to an OpenTelemetry collector would only need another exporter.
 
+Traces use the same SDK and are sent over OTLP/HTTP to Jaeger, which is part of `docker-compose.yml` and shows them at `http://localhost:16686`. There are four kinds of span, all in the outer layers, so the application layer is untouched:
+
+- one span for each HTTP request, named after the method and the route, with the status code (a 5xx marks it as an error). Health checks and `/metrics` are not traced;
+- `sqs.consume` for each message of the input queue, with the message id, the receive count, the resulting status or the outcome of the error classification;
+- `outbox.publish` for each claim of the publisher that found events, with how many were claimed and how many SQS confirmed;
+- `db.transaction`, inside any of the above. It covers the whole SQL transaction, so on a hot wallet its duration includes the wait for the wallet lock. It is created only when there is an active span, so idle workers produce no traces.
+
+Tracing is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and only the `app` service has it in Compose, so the tests and the load test never send traces. Jaeger is not a dependency of the service: the spans are exported in batches in the background, and with Jaeger stopped the API kept answering and `/health/ready` stayed green. The trace context is not carried through the queue or the events, so a bet received over HTTP and the message or the outbox batch that follows it are separate traces.
+
 `/health/live` answers as long as the process is up. `/health/ready` checks PostgreSQL and SQS and returns 503 if either is down. Both are open.
 
 ## Authentication
@@ -287,7 +297,7 @@ The design I would adopt: an external identity provider (Keycloak or Zitadel) wi
 Everything that matters runs against a real PostgreSQL and a real LocalStack, in containers. The only test double is a stub of the processing use case in the single test that needs an unexpected error. Failures are provoked with real means: a row lock held by another connection, a dead SQS endpoint, a queue whose size limit makes SQS refuse one message of a batch, a process killed with `process.exit` at an exact point, and a process killed with `SIGKILL`. The crashing publisher runs the real publisher with the real SQS client, wrapped so that the process dies right before or right after the real call. The consumer test for the receive limit releases its held lock from a wrapper around the real unit of work, right before the failure is recorded, instead of after a timer.
 
 - Unit tests: money, wallet, ledger entry, transaction transitions, outbox and inbox, events, the payload hash, the command and message parsing (null bytes included), the translation of database errors, the error mapper, the cursor, the metrics output, the configuration and the worker loop.
-- Integration tests: the migrations (all reverted and applied again, leaving the same schema), constraints and triggers, atomicity, idempotency, all the rules, reversals and pending references, the HTTP API (the whole application on a random port), the publisher (batches of ten, a batch that SQS refuses in part, SQS down), the consumer.
+- Integration tests: the migrations (all reverted and applied again, leaving the same schema), constraints and triggers, atomicity, idempotency, all the rules, reversals and pending references, the HTTP API (the whole application on a random port), the publisher (batches of ten, a batch that SQS refuses in part, SQS down), the consumer, and the traces (a bet is one HTTP span with its database transaction inside, and health checks are not traced).
 - Concurrency tests: the same bet 50 times in parallel, two bets of 80.00 on a 100.00 wallet, ten parallel bets on one wallet, wallets in parallel, a reversal racing with its own bet, several publishers and consumers, a worker killed after the commit and before the ack, and a publisher killed before and after sending.
 - The multi-instance test starts three real processes of the application (the size is configurable, and it also passes with 12), sends mixed HTTP and SQS traffic with duplicates in shuffled order, kills one instance with `SIGKILL`, restarts it and waits for the system to settle. Then it checks that each transaction exists once, that every wallet balance equals the balance rebuilt from its ledger, that the outbox is fully published and that the dead-letter queue is empty.
 
@@ -372,6 +382,7 @@ What the numbers show:
 - A `FAILED` transaction answers 422 with `PERMANENT_ERROR`: the provider must not resend it with the same id.
 - A third queue, `wager-events.fifo`, carries the outbox events. Otherwise the consumer would read its own events. The tests use their own copies of the queues so they can run while an instance is consuming the real ones.
 - LocalStack is pinned to 3.8.1, because newer images refuse to start without an account token, and a reviewer would not have one.
+- Jaeger is always on in `docker-compose.yml`, with a pinned image (`jaegertracing/jaeger:2.22.0`). A reviewer who starts the system can open the traces without any extra command, and the application works the same without it.
 - Instances are exposed behind a small nginx gateway, because the statement says nothing about it and a port range gave unpredictable ports.
 
 ## Limits and trade-offs
@@ -384,4 +395,4 @@ What the numbers show:
 - The ledger triggers do not stop the owner of the table, who can disable them. The application should connect with a role that can only `SELECT` and `INSERT` on the ledger. I did not do that.
 - Currencies are only checked for the pattern of three uppercase letters, not against the ISO list.
 - The ledger is single-entry. A double-entry ledger is an optional extra that I left out, because it changes the constraints that sustain the financial guarantees.
-- There is no distributed tracing and no dashboard, both optional in the statement. The metrics already go through the OpenTelemetry SDK, so traces would need an exporter and spans around the use case, the consumer and the publisher.
+- There is no dashboard, which is optional in the statement. Tracing is deliberately small: four kinds of span, kept in memory by Jaeger, with no sampling and no trace context carried through the queue or the events, so a request and the message or the outbox batch that follows it are separate traces.
