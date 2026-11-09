@@ -294,11 +294,11 @@ function report(rows: Row[], postgres: string, dlq: number): string {
     "",
     "## Results",
     "",
-    "| Scenario | Requests | New | Replays | 422 | Errors | Resent | Seconds | Req/s | p50 ms | p95 ms | p99 ms | Lock conflicts | Max outbox lag s | Outbox drain s | Consistent |",
-    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    "| Scenario | Requests | New | Replays | 422 | Errors | Error rate | Resent | Seconds | Req/s | p50 ms | p95 ms | p99 ms | Lock conflicts | Max outbox lag s | Outbox drain s | Consistent |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ...rows.map(
       (row) =>
-        `| ${row.name} | ${row.requests} | ${row.created} | ${row.replays} | ${row.rejected} | ${row.errors} | ${row.resent} | ${fixed(row.seconds)} | ${fixed(row.requests / row.seconds, 0)} | ${fixed(row.p50)} | ${fixed(row.p95)} | ${fixed(row.p99)} | ${row.lockConflicts} | ${fixed(row.maxLag)} | ${fixed(row.drainSeconds)} | ${row.consistent ? "yes" : "NO"} |`,
+        `| ${row.name} | ${row.requests} | ${row.created} | ${row.replays} | ${row.rejected} | ${row.errors} | ${fixed((row.errors / row.requests) * 100, 2)}% | ${row.resent} | ${fixed(row.seconds)} | ${fixed(row.requests / row.seconds, 0)} | ${fixed(row.p50)} | ${fixed(row.p95)} | ${fixed(row.p99)} | ${row.lockConflicts} | ${fixed(row.maxLag)} | ${fixed(row.drainSeconds)} | ${row.consistent ? "yes" : "NO"} |`,
     ),
     "",
     `Messages in the dead-letter queue after the run: ${dlq}`,
