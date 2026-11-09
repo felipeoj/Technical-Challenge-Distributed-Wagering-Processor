@@ -31,3 +31,14 @@ export function parseWagerCommand(raw: unknown): WagerCommand {
   }
   return parsed.data;
 }
+
+const providerReferenceSchema = wagerCommandSchema.pick({ providerId: true, externalTransactionId: true });
+
+export function parseProviderReference(providerId: string, externalTransactionId: string) {
+  const parsed = providerReferenceSchema.safeParse({ providerId, externalTransactionId });
+  if (!parsed.success) {
+    const fields = [...new Set(parsed.error.issues.map((issue) => issue.path.join(".")))];
+    throw new InvalidCommandError(`invalid fields: ${fields.join(", ")}`);
+  }
+  return parsed.data;
+}

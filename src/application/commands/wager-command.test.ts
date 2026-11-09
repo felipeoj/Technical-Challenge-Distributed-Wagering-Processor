@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { InvalidCommandError } from "../../domain/errors";
 import { parseOpenWalletCommand } from "./open-wallet-command";
-import { parseWagerCommand } from "./wager-command";
+import { parseProviderReference, parseWagerCommand } from "./wager-command";
 
 const valid = {
   providerId: "provider-a",
@@ -30,5 +30,22 @@ describe("null bytes in text fields", () => {
     expect(() => parseOpenWalletCommand({ playerId: "a\u0000b", initialBalance: { amount: "1.00", currency: "BRL" } })).toThrow(
       InvalidCommandError,
     );
+  });
+});
+
+describe("provider reference lookups", () => {
+  test("accept the ids a submitted transaction accepts", () => {
+    expect(parseProviderReference("provider-a", "transaction-123")).toEqual({
+      providerId: "provider-a",
+      externalTransactionId: "transaction-123",
+    });
+  });
+
+  test.each([
+    ["a null byte in the provider id", "a\u0000b", "transaction-123"],
+    ["a null byte in the external id", "provider-a", "a\u0000b"],
+    ["an external id longer than a submitted one can be", "provider-a", "x".repeat(201)],
+  ])("reject %s", (_, providerId, externalTransactionId) => {
+    expect(() => parseProviderReference(providerId, externalTransactionId)).toThrow(InvalidCommandError);
   });
 });
