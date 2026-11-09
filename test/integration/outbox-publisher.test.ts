@@ -6,7 +6,7 @@ import { ProcessWagerTransaction } from "../../src/application/process-wager-tra
 import { IntegrationEvent } from "../../src/domain/messaging/events/integration-event";
 import { OutboxMessage } from "../../src/domain/messaging/outbox-message";
 import { MikroOrmUnitOfWork } from "../../src/infrastructure/persistence/mikro-unit-of-work";
-import { PrometheusMetrics } from "../../src/infrastructure/observability/prometheus-metrics";
+import { OpenTelemetryMetrics } from "../../src/infrastructure/observability/otel-metrics";
 import { OutboxPublisher } from "../../src/infrastructure/sqs/outbox-publisher";
 import { createSqsClient } from "../../src/infrastructure/sqs/sqs-client";
 import { connectIsolatedDatabase, run } from "../support/database";
@@ -21,7 +21,7 @@ let openWallet: OpenWallet;
 let processWager: ProcessWagerTransaction;
 let publisher: OutboxPublisher;
 const clock = new TestClock();
-const metrics = new PrometheusMetrics();
+const metrics = new OpenTelemetryMetrics();
 
 class TestEvent extends IntegrationEvent<{ n: number }> {
   readonly eventType = "TestEvent";
@@ -224,12 +224,12 @@ describe("failures", () => {
       { logger: silentLogger(), metrics },
     );
     await broken.publishBatch(100);
-    const lagWhileWaiting = Number((await metrics.registry.getSingleMetricAsString("outbox_lag_seconds")).match(/^outbox_lag_seconds (\S+)$/m)?.[1]);
+    const lagWhileWaiting = Number((await metrics.scrape()).match(/^outbox_lag_seconds (\S+)$/m)?.[1]);
     expect(lagWhileWaiting).toBeGreaterThan(0);
 
     clock.advance(5_000);
     await publisher.publishBatch(100);
-    const lagAfter = Number((await metrics.registry.getSingleMetricAsString("outbox_lag_seconds")).match(/^outbox_lag_seconds (\S+)$/m)?.[1]);
+    const lagAfter = Number((await metrics.scrape()).match(/^outbox_lag_seconds (\S+)$/m)?.[1]);
     expect(lagAfter).toBe(0);
     await receiveAll(queues.events);
   });

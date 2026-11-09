@@ -9,7 +9,7 @@ import {
   NEST_LOGGER,
   OBSERVABILITY,
   ORM,
-  PROMETHEUS,
+  METRICS,
   SQS,
   UNIT_OF_WORK,
 } from "./app.tokens";
@@ -32,7 +32,7 @@ import { HealthController } from "./infrastructure/health/health.controller";
 import { MetricsController } from "./infrastructure/observability/metrics.controller";
 import { NestLoggerAdapter } from "./infrastructure/observability/nest-logger";
 import { PinoLogger } from "./infrastructure/observability/pino-logger";
-import { PrometheusMetrics } from "./infrastructure/observability/prometheus-metrics";
+import { OpenTelemetryMetrics } from "./infrastructure/observability/otel-metrics";
 import { buildOrmConfig } from "./infrastructure/persistence/mikro-orm.config";
 import { MikroOrmUnitOfWork } from "./infrastructure/persistence/mikro-unit-of-work";
 import { createSqsClient } from "./infrastructure/sqs/sqs-client";
@@ -59,20 +59,20 @@ class SqsShutdown implements OnApplicationShutdown {
   controllers: [HealthController, MetricsController, WalletsController, WageringController],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
-    { provide: PROMETHEUS, useFactory: () => new PrometheusMetrics() },
+    { provide: METRICS, useFactory: () => new OpenTelemetryMetrics() },
     { provide: LOGGER, useFactory: (env: Env) => new PinoLogger(env.LOG_LEVEL), inject: [ENV] },
     { provide: NEST_LOGGER, useFactory: (logger: PinoLogger) => new NestLoggerAdapter(logger), inject: [LOGGER] },
     {
       provide: OBSERVABILITY,
-      useFactory: (logger: PinoLogger, metrics: PrometheusMetrics): Observability => ({ logger, metrics }),
-      inject: [LOGGER, PROMETHEUS],
+      useFactory: (logger: PinoLogger, metrics: OpenTelemetryMetrics): Observability => ({ logger, metrics }),
+      inject: [LOGGER, METRICS],
     },
     { provide: SQS, useFactory: (env: Env) => createSqsClient(env), inject: [ENV] },
     { provide: ORM, useFactory: (env: Env) => MikroORM.init(buildOrmConfig(env.DATABASE_URL)), inject: [ENV] },
     {
       provide: UNIT_OF_WORK,
-      useFactory: (orm: MikroORM, metrics: PrometheusMetrics) => new MikroOrmUnitOfWork(orm, metrics),
-      inject: [ORM, PROMETHEUS],
+      useFactory: (orm: MikroORM, metrics: OpenTelemetryMetrics) => new MikroOrmUnitOfWork(orm, metrics),
+      inject: [ORM, METRICS],
     },
     { provide: CLOCK, useFactory: () => new SystemClock() },
     {
