@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { MikroORM } from "@mikro-orm/postgresql";
 import { OpenWallet } from "../../src/application/open-wallet";
@@ -10,6 +10,7 @@ import { PrometheusMetrics } from "../../src/infrastructure/observability/promet
 import { OutboxPublisher } from "../../src/infrastructure/sqs/outbox-publisher";
 import { createSqsClient } from "../../src/infrastructure/sqs/sqs-client";
 import { connectIsolatedDatabase, run } from "../support/database";
+import { walletsOutOfBalance } from "../support/ledger";
 import { env, purgeAll, queueEnv, queues, receiveAll, sqs } from "../support/queues";
 import { TestClock } from "../support/test-clock";
 
@@ -47,6 +48,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await orm.close();
+});
+
+afterEach(async () => {
+  expect(await walletsOutOfBalance(orm)).toEqual([]);
 });
 
 function silentLogger() {

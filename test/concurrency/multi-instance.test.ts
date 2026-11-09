@@ -1,8 +1,9 @@
 import { GetQueueAttributesCommand } from "@aws-sdk/client-sqs";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { MikroORM } from "@mikro-orm/postgresql";
 import { connectIsolatedDatabase, run } from "../support/database";
+import { walletsOutOfBalance } from "../support/ledger";
 import { purgeAll, queueEnv, queues, receiveAll, sendWagerMessage, sqs } from "../support/queues";
 
 const INSTANCES = Math.max(3, Number(Bun.env.INSTANCES ?? 3));
@@ -128,6 +129,10 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const child of processes.values()) child.kill("SIGKILL");
   await orm.close();
+});
+
+afterEach(async () => {
+  expect(await walletsOutOfBalance(orm)).toEqual([]);
 });
 
 describe("three real application instances", () => {
