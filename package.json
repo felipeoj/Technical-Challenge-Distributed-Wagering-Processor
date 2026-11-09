@@ -9,6 +9,7 @@
     "test": "bun test src",
     "test:integration": "bun test --timeout 60000 test/integration",
     "test:concurrency": "bun test --timeout 420000 test/concurrency",
+    "test:load": "bun --env-file=.env test/load/load-test.ts",
     "migration:up": "bun --env-file=.env scripts/migrate.ts up",
     "migration:down": "bun --env-file=.env scripts/migrate.ts down"
   },
